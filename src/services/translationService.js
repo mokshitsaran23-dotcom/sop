@@ -3,7 +3,8 @@ import {
   SUPPORTED_LANGUAGES,
   DICTIONARY_SYNONYMS,
   SIMULATION_TRANSLATIONS,
-  COMMON_WORD_DICTIONARY
+  COMMON_WORD_DICTIONARY,
+  PRONOUN_DICTIONARY
 } from '../utils/languages.js';
 
 // Unicode normalizer: strips punctuation while preserving letters, unicode vowel marks/viramas (\p{M}), numbers, spaces
@@ -17,6 +18,8 @@ export function normalizeText(str) {
 
 // Known crowd-sourced spam/corrupted/transliterated translations returned by MyMemory to blacklist
 const KNOWN_CORRUPTED_TRANSLATIONS = [
+  'இவ வந்து குளிக்க போயிட்டு',
+  'குளிக்க போயிட்டு',
   'ஒரு ஒத்திசைவான ஒருங்கிணைந்த வாக்கியத்தை உருவாக்குங்கள்',
   'அது மிகவும் வேடிக்கையானது',
   'ஒருபோதும் விடைபெற வேண்டாம்',
@@ -35,6 +38,8 @@ const KNOWN_CORRUPTED_TRANSLATIONS = [
   'mymemory warning',
   'please select two distinct languages',
   'query length limit exceeded',
+  'quota exceeded',
+  'you used all available',
   'invalid target language',
   'null',
   'undefined'
@@ -50,7 +55,7 @@ class TranslationService {
     return `${from}->${to}:${text.trim().toLowerCase()}`;
   }
 
-  // Quick dictionary matching for common phrases, greetings, acknowledgements, and simulated calls
+  // Quick dictionary matching for common phrases, pronouns, greetings, and simulated calls
   findDictionaryMatch(text, fromCode, toCode) {
     if (!text || !text.trim()) return null;
 
@@ -62,12 +67,28 @@ class TranslationService {
     const normText = normalizeText(text);
     if (!normText) return text;
 
+    // 1. Check Multilingual Pronoun & Core Word Dictionary (instant 0ms, 100% precision)
+    if (Array.isArray(PRONOUN_DICTIONARY)) {
+      for (const entry of PRONOUN_DICTIONARY) {
+        if (entry[toShort]) {
+          // Match by canonical key (e.g. 'i', 'you')
+          if (entry.key && entry.key.toLowerCase() === normText) {
+            return entry[toShort];
+          }
+          // Match by source language value (e.g. 'நான்' -> 'I' or 'I' -> 'நான்')
+          if (entry[fromShort] && normalizeText(entry[fromShort]) === normText) {
+            return entry[toShort];
+          }
+        }
+      }
+    }
+
     const fromLangObj = SUPPORTED_LANGUAGES.find(l => l.shortCode === fromShort);
     const toLangObj = SUPPORTED_LANGUAGES.find(l => l.shortCode === toShort);
 
     if (!fromLangObj || !toLangObj) return null;
 
-    // 1. Check direct word dictionary (e.g. "நன்றி" -> "Thank you", "வணக்கம்" -> "Hello")
+    // 2. Check direct word dictionary (e.g. "நன்றி" -> "Thank you", "வணக்கம்" -> "Hello")
     if (COMMON_WORD_DICTIONARY) {
       if (fromShort === 'ta' && toShort === 'en' && COMMON_WORD_DICTIONARY.ta_to_en?.[normText]) {
         return COMMON_WORD_DICTIONARY.ta_to_en[normText];
@@ -77,7 +98,7 @@ class TranslationService {
       }
     }
 
-    // 2. Check exact match in contact simulation dialogue pairs (e.g. Karthik, Sofia, Priya, Alex)
+    // 3. Check exact match in contact simulation dialogue pairs (e.g. Karthik, Sofia, Priya, Alex)
     if (Array.isArray(SIMULATION_TRANSLATIONS)) {
       for (const sim of SIMULATION_TRANSLATIONS) {
         if (sim[fromShort] && sim[toShort]) {
@@ -88,7 +109,7 @@ class TranslationService {
       }
     }
 
-    // 3. Check multilingual synonyms dictionary (e.g. "நன்றி" or "thanks" or "thank you" -> thank_you key)
+    // 4. Check multilingual synonyms dictionary (e.g. "நன்றி" or "thanks" or "thank you" -> thank_you key)
     if (DICTIONARY_SYNONYMS) {
       for (const [key, synonyms] of Object.entries(DICTIONARY_SYNONYMS)) {
         // Match key directly
@@ -106,7 +127,7 @@ class TranslationService {
       }
     }
 
-    // 4. Check exact match against fromLang phrases
+    // 5. Check exact match against fromLang phrases
     if (fromLangObj.phrases) {
       for (const [key, phraseVal] of Object.entries(fromLangObj.phrases)) {
         if (normalizeText(phraseVal) === normText || normalizeText(key) === normText) {
@@ -117,7 +138,7 @@ class TranslationService {
       }
     }
 
-    // 5. Reverse check against toLang phrases
+    // 6. Reverse check against toLang phrases
     if (toLangObj.phrases) {
       for (const [key, phraseVal] of Object.entries(toLangObj.phrases)) {
         if (normalizeText(phraseVal) === normText) {
@@ -126,7 +147,7 @@ class TranslationService {
       }
     }
 
-    // 6. Compound greeting checks (e.g., "Hello! How are you?" -> combine hello + how are you)
+    // 7. Compound greeting checks (e.g., "Hello! How are you?" -> combine hello + how are you)
     if (normText.startsWith('hello ') || normText.startsWith('hi ') || normText.startsWith('hey ')) {
       const remainder = normText.replace(/^(hello|hi|hey)\s+/, '').trim();
       const helloTrans = toLangObj.phrases?.hello || 'Hello';
@@ -182,14 +203,111 @@ class TranslationService {
       }
     }
 
-    // 4. Check if input was a short word (<= 2 words) but output is a lengthy 6+ word sentence
+    // 4. Length distortion check:
+    // If input is 1 or 2 words, but output is 3+ words, it is suspicious crowd-sourced spam
     const originalWordCount = originalText.trim().split(/\s+/).length;
     const translatedWordCount = translated.trim().split(/\s+/).length;
-    if (originalWordCount <= 2 && translatedWordCount >= 6) {
+    if (originalWordCount === 1 && translatedWordCount >= 3) {
+      return true;
+    }
+    if (originalWordCount <= 2 && translatedWordCount >= 5) {
+      return true;
+    }
+    if (originalWordCount <= 4 && translatedWordCount >= 10) {
       return true;
     }
 
     return false;
+  }
+
+  // Fetch from Google Translate via Vite Proxy (/api/translate) or direct fallback
+  async fetchGoogleTranslation(text, fromShort, toShort) {
+    // 1. Try local Vite proxy first
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const url = `/api/translate?sl=${encodeURIComponent(fromShort)}&tl=${encodeURIComponent(toShort)}&q=${encodeURIComponent(text.trim())}`;
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.translation && typeof data.translation === 'string' && data.translation.trim()) {
+          return data.translation.trim();
+        }
+      }
+    } catch {
+      // Local proxy failed or aborted, continue to direct Google Translate
+    }
+
+    // 2. Direct Google Translate API call (client=gtx)
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const directUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(fromShort)}&tl=${encodeURIComponent(toShort)}&dt=t&q=${encodeURIComponent(text.trim())}`;
+      const res = await fetch(directUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.[0])) {
+          const combined = data[0].map(s => s?.[0]).filter(Boolean).join('');
+          if (combined && combined.trim()) {
+            return combined.trim();
+          }
+        }
+      }
+    } catch {
+      // Direct Google Translate failed
+    }
+
+    return null;
+  }
+
+  // Fallback to MyMemory with strict filtering
+  async fetchMyMemoryTranslation(text, fromShort, toShort) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+      const langpair = `${fromShort}|${toShort}`;
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.trim())}&langpair=${encodeURIComponent(langpair)}`;
+
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        let candidate = data?.responseData?.translatedText || '';
+
+        candidate = candidate
+          .replace(/&#39;/g, "'")
+          .replace(/&quot;/g, '"')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .trim();
+
+        if (candidate && !this.isCorrupted(candidate, text, toShort)) {
+          return candidate;
+        }
+
+        if (Array.isArray(data?.matches)) {
+          for (const m of data.matches) {
+            let mText = (m.translation || '')
+              .replace(/&#39;/g, "'")
+              .replace(/&quot;/g, '"')
+              .replace(/&amp;/g, '&')
+              .trim();
+            if (mText && !this.isCorrupted(mText, text, toShort)) {
+              return mText;
+            }
+          }
+        }
+      }
+    } catch {
+      // MyMemory failed
+    }
+
+    return null;
   }
 
   // Main translation function
@@ -216,68 +334,47 @@ class TranslationService {
       return dictMatch;
     }
 
-    // 2. Online API translation fallback (MyMemory API) with spam filtering & match inspection
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5s timeout
-
-      const langpair = `${fromShort}|${toShort}`;
-      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.trim())}&langpair=${encodeURIComponent(langpair)}`;
-
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data = await res.json();
-        let candidate = data?.responseData?.translatedText || '';
-
-        // Decode HTML entities
-        candidate = candidate
-          .replace(/&#39;/g, "'")
-          .replace(/&quot;/g, '"')
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .trim();
-
-        // Check if top candidate is clean and not corrupted
-        if (!this.isCorrupted(candidate, text, toShort)) {
-          this.cache.set(cacheKey, candidate);
-          return candidate;
-        }
-
-        // If top candidate was corrupted (e.g. "sooru saptiya"), inspect alternative matches
-        if (Array.isArray(data?.matches)) {
-          for (const m of data.matches) {
-            let mText = (m.translation || '')
-              .replace(/&#39;/g, "'")
-              .replace(/&quot;/g, '"')
-              .replace(/&amp;/g, '&')
-              .trim();
-            if (mText && !this.isCorrupted(mText, text, toShort)) {
-              this.cache.set(cacheKey, mText);
-              return mText;
-            }
-          }
-        }
+    // 2. Primary Online Engine: Google Translate (high quality Neural Machine Translation)
+    const googleResult = await this.fetchGoogleTranslation(text, fromShort, toShort);
+    if (googleResult && !this.isCorrupted(googleResult, text, toShort)) {
+      // Clean up Google Translate single-letter pronoun edge case for Tamil
+      let finalResult = googleResult;
+      if (normalizeText(text) === 'i' && toShort === 'ta' && (finalResult === 'ஐ' || finalResult === 'ஐ.')) {
+        finalResult = 'நான்';
       }
-    } catch (err) {
-      console.warn('Online translation request failed or timed out:', err);
+      this.cache.set(cacheKey, finalResult);
+      return finalResult;
     }
 
-    // 3. Fallback: check if any individual word in input matches dictionary
+    // 3. Secondary Fallback: MyMemory API with strict spam validation
+    const myMemoryResult = await this.fetchMyMemoryTranslation(text, fromShort, toShort);
+    if (myMemoryResult && !this.isCorrupted(myMemoryResult, text, toShort)) {
+      this.cache.set(cacheKey, myMemoryResult);
+      return myMemoryResult;
+    }
+
+    // 4. Word-by-word fallback: check if any individual word in input matches dictionary
     const words = text.trim().split(/\s+/);
     if (words.length <= 4) {
+      const translatedWords = [];
+      let anyMatched = false;
       for (const w of words) {
         const singleMatch = this.findDictionaryMatch(w, fromLang, toLang);
         if (singleMatch) {
-          this.cache.set(cacheKey, singleMatch);
-          return singleMatch;
+          translatedWords.push(singleMatch);
+          anyMatched = true;
+        } else {
+          translatedWords.push(w);
         }
+      }
+      if (anyMatched) {
+        const combined = translatedWords.join(' ');
+        this.cache.set(cacheKey, combined);
+        return combined;
       }
     }
 
-    // 4. Final fallback: return original text safely without breaking UI
+    // 5. Final fallback: return original text safely without breaking UI
     this.cache.set(cacheKey, text);
     return text;
   }

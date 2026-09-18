@@ -1,14 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { useCall } from '../context/CallContext';
 import { useApp } from '../context/AppContext';
 import { 
-  Send, 
   Volume2, 
+  VolumeX,
+  RotateCcw,
   PhoneOff, 
   Sparkles, 
   ArrowRightLeft, 
   Settings, 
-  User, 
   Keyboard, 
   Subtitles,
   Mic,
@@ -40,9 +40,17 @@ export default function TextToSpeechCallScreen() {
     sendTTSMessage, 
     isSpeakingTTS,
     isTranslating,
+
+    // Voice playback states & controls
+    leftVoicePlaying,
+    rightVoicePlaying,
+    replayLeftVoice,
+    replayRightVoice,
+    leftLastAudioPayload,
+    rightLastAudioPayload,
   } = useCall();
 
-  const { translationDisplayMode, setIsSettingsOpen } = useApp();
+  const { voiceWithCaptions, setVoiceWithCaptions, setIsSettingsOpen } = useApp();
 
   const [inputMessage, setInputMessage] = useState('');
   const inputRef = useRef(null);
@@ -212,20 +220,40 @@ export default function TextToSpeechCallScreen() {
             </div>
           </form>
 
-          {/* LISTENER'S CAPTION BOX ON YOUR SIDE */}
+          {/* LISTENER'S CAPTION / VOICE BOX ON YOUR SIDE */}
           {/* Displays what the CALLED PERSON spoke in reply */}
           {callerCaptionsEnabled ? (
             <div className="p-4 rounded-2xl bg-slate-950 border-2 border-emerald-500/40 shadow-inner" aria-live="polite">
-              <div className="text-xs font-black uppercase tracking-wider text-emerald-400 mb-1 flex items-center justify-between">
+              <div className="text-xs font-black uppercase tracking-wider text-emerald-400 mb-2 flex items-center justify-between gap-2 flex-wrap">
                 <span className="flex items-center gap-1.5">
-                  <Subtitles className="w-3.5 h-3.5" />
-                  Caption for You (Spoken reply from {activeContact?.name})
+                  <Subtitles className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Caption for You (Spoken reply from {activeContact?.name})</span>
                 </span>
-                {leftPanelCaption.time && (
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {leftPanelCaption.time}
-                  </span>
-                )}
+
+                <div className="flex items-center gap-2">
+                  {leftVoicePlaying ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-extrabold border border-emerald-500/40 animate-pulse">
+                      <Volume2 className="w-3 h-3 text-emerald-400" />
+                      <span>Voice Playing...</span>
+                    </span>
+                  ) : leftLastAudioPayload?.audio ? (
+                    <button
+                      type="button"
+                      onClick={replayLeftVoice}
+                      className="touch-target-large inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 hover:text-white border border-emerald-700/60 text-xs font-bold transition-all shadow-sm active:scale-95"
+                      title="Play synthesized voice audio aloud"
+                    >
+                      <Volume2 className="w-3.5 h-3.5" />
+                      <span>Play Voice</span>
+                    </button>
+                  ) : null}
+
+                  {leftPanelCaption.time && (
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {leftPanelCaption.time}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {leftPanelCaption.text ? (
@@ -246,8 +274,65 @@ export default function TextToSpeechCallScreen() {
               )}
             </div>
           ) : (
-            <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 text-center text-xs text-slate-500">
-              Captions turned OFF for your panel
+            /* CAPTIONS OFF: HIDE TRANSCRIPT, DISPLAY VOICE AUDIO CARD */
+            <div className="p-4 rounded-2xl bg-slate-950 border-2 border-emerald-500/50 shadow-inner">
+              <div className="flex items-center justify-between mb-2">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider">
+                  <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Captions OFF • Voice Auto-Play</span>
+                </span>
+                {leftPanelCaption.time && (
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {leftPanelCaption.time}
+                  </span>
+                )}
+              </div>
+
+              {leftVoicePlaying ? (
+                <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-center gap-2">
+                  <div className="flex items-center gap-1.5 h-7">
+                    <div className="w-2 rounded-full bg-emerald-400 wave-bar-1" />
+                    <div className="w-2 rounded-full bg-teal-400 wave-bar-2" />
+                    <div className="w-2 rounded-full bg-emerald-500 wave-bar-3" />
+                    <div className="w-2 rounded-full bg-cyan-400 wave-bar-4" />
+                    <div className="w-2 rounded-full bg-emerald-400 wave-bar-5" />
+                  </div>
+                  <p className="text-xs font-extrabold text-emerald-300 animate-pulse">
+                    Playing {activeContact?.name}'s reply aloud in {calleeLangObj.name}...
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Transcript hidden because captions are OFF.
+                  </p>
+                </div>
+              ) : leftLastAudioPayload?.audio ? (
+                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                      <Volume2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-200">
+                        Voice reply from {activeContact?.name} delivered
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        Auto-played via synthesized speech ({calleeLangObj.name})
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={replayLeftVoice}
+                    className="touch-target-large px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition-all"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Replay</span>
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 italic text-center py-2">
+                  Captions are OFF. When {activeContact?.name} speaks, voice audio plays automatically.
+                </p>
+              )}
             </div>
           )}
 
@@ -320,7 +405,7 @@ export default function TextToSpeechCallScreen() {
                   </div>
                 )}
               </div>
-            ) : isSpeakingTTS ? (
+            ) : isSpeakingTTS || rightVoicePlaying ? (
               <div className="flex flex-col items-center gap-3 w-full text-center">
                 <div className="flex items-center gap-1.5 h-12">
                   <div className="w-2.5 rounded-full bg-amber-400 wave-bar-1" />
@@ -372,20 +457,40 @@ export default function TextToSpeechCallScreen() {
             </button>
           </div>
 
-          {/* LISTENER'S CAPTION BOX ON CALLED PERSON'S SIDE */}
+          {/* LISTENER'S CAPTION / VOICE BOX ON CALLED PERSON'S SIDE */}
           {/* Displays what YOU typed and spoke out loud */}
           {calleeCaptionsEnabled ? (
             <div className="p-4 rounded-2xl bg-slate-950 border-2 border-sky-500/40 shadow-inner" aria-live="polite">
-              <div className="text-xs font-black uppercase tracking-wider text-sky-400 mb-1 flex items-center justify-between">
+              <div className="text-xs font-black uppercase tracking-wider text-sky-400 mb-2 flex items-center justify-between gap-2 flex-wrap">
                 <span className="flex items-center gap-1.5">
-                  <Subtitles className="w-3.5 h-3.5" />
-                  Caption for {activeContact?.name} (from Your typed text)
+                  <Subtitles className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Caption for {activeContact?.name} (from Your typed text)</span>
                 </span>
-                {rightPanelCaption.time && (
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    {rightPanelCaption.time}
-                  </span>
-                )}
+
+                <div className="flex items-center gap-2">
+                  {rightVoicePlaying ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 text-[10px] font-extrabold border border-sky-500/40 animate-pulse">
+                      <Volume2 className="w-3 h-3 text-sky-400" />
+                      <span>Voice Playing...</span>
+                    </span>
+                  ) : rightLastAudioPayload?.audio ? (
+                    <button
+                      type="button"
+                      onClick={replayRightVoice}
+                      className="touch-target-large inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-sky-950 hover:bg-sky-900 text-sky-300 hover:text-white border border-sky-700/60 text-xs font-bold transition-all shadow-sm active:scale-95"
+                      title="Play synthesized voice audio aloud"
+                    >
+                      <Volume2 className="w-3.5 h-3.5" />
+                      <span>Play Voice</span>
+                    </button>
+                  ) : null}
+
+                  {rightPanelCaption.time && (
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {rightPanelCaption.time}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {rightPanelCaption.text ? (
@@ -406,8 +511,65 @@ export default function TextToSpeechCallScreen() {
               )}
             </div>
           ) : (
-            <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 text-center text-xs text-slate-500">
-              Captions turned OFF for {activeContact?.name}'s panel
+            /* CAPTIONS OFF: HIDE TRANSCRIPT, DISPLAY VOICE AUDIO CARD */
+            <div className="p-4 rounded-2xl bg-slate-950 border-2 border-sky-500/50 shadow-inner">
+              <div className="flex items-center justify-between mb-2">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-black uppercase tracking-wider">
+                  <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Captions OFF • Voice Auto-Play</span>
+                </span>
+                {rightPanelCaption.time && (
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {rightPanelCaption.time}
+                  </span>
+                )}
+              </div>
+
+              {rightVoicePlaying ? (
+                <div className="flex flex-col items-center justify-center p-3 rounded-xl bg-sky-950/40 border border-sky-500/30 text-center gap-2">
+                  <div className="flex items-center gap-1.5 h-7">
+                    <div className="w-2 rounded-full bg-sky-400 wave-bar-1" />
+                    <div className="w-2 rounded-full bg-indigo-400 wave-bar-2" />
+                    <div className="w-2 rounded-full bg-sky-500 wave-bar-3" />
+                    <div className="w-2 rounded-full bg-blue-400 wave-bar-4" />
+                    <div className="w-2 rounded-full bg-sky-400 wave-bar-5" />
+                  </div>
+                  <p className="text-xs font-extrabold text-sky-300 animate-pulse">
+                    Auto-playing your voice in {calleeLangObj.name} to {activeContact?.name}...
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Transcript hidden because {activeContact?.name}'s captions are OFF.
+                  </p>
+                </div>
+              ) : rightLastAudioPayload?.audio ? (
+                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-sky-500/20 text-sky-400 flex items-center justify-center">
+                      <Volume2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-200">
+                        Voice message delivered to {activeContact?.name}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        Auto-played via synthesized speech ({calleeLangObj.name})
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={replayRightVoice}
+                    className="touch-target-large px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition-all"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Replay</span>
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 italic text-center py-2">
+                  Captions are OFF for {activeContact?.name}. When you speak, your voice plays aloud automatically.
+                </p>
+              )}
             </div>
           )}
 
@@ -420,11 +582,26 @@ export default function TextToSpeechCallScreen() {
         
         <div className="flex items-center gap-2">
           <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-2">
-            Text-to-Speech Active • Type on Left ➔ Plays to Right
+            Dual Delivery: Text Captions + Real-Time Synthesized Voice
           </span>
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Voice with Captions Preference Toggle */}
+          <button
+            type="button"
+            onClick={() => setVoiceWithCaptions(prev => prev === 'auto_play' ? 'muted' : 'auto_play')}
+            className={`touch-target-large px-3.5 py-2.5 rounded-xl border font-bold text-xs flex items-center gap-2 transition-colors ${
+              voiceWithCaptions === 'auto_play'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+            title="When captions are ON: choose whether voice also auto-plays or stays muted until clicked"
+          >
+            {voiceWithCaptions === 'auto_play' ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+            <span>Voice with Captions: {voiceWithCaptions === 'auto_play' ? 'Auto-Play' : 'Muted'}</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsSettingsOpen(true)}

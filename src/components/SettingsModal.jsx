@@ -30,6 +30,8 @@ export default function SettingsModal() {
     setCaptionsEnabled,
     translationDisplayMode,
     setTranslationDisplayMode,
+    voiceWithCaptions,
+    setVoiceWithCaptions,
     soundEnabled,
     setSoundEnabled,
     dailyRoomUrl,
@@ -234,6 +236,51 @@ export default function SettingsModal() {
                     </div>
                     <p className="text-xs text-slate-400 mt-1">
                       Replaces foreign text and shows only your preferred language
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Voice Audio when Captions are ON */}
+              <div className="p-4 rounded-2xl bg-slate-800/70 border border-slate-700">
+                <label className="block text-sm font-bold text-white mb-1">
+                  Voice Audio when Captions are ON
+                </label>
+                <p className="text-xs text-slate-400 mb-3">
+                  Choose how voice behaves when captions are visible. Note: when captions are turned OFF, voice audio always auto-plays automatically.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setVoiceWithCaptions('muted')}
+                    className={`p-3 rounded-xl text-left border transition-all ${voiceWithCaptions === 'muted'
+                        ? 'bg-emerald-950/60 border-emerald-400 text-white ring-2 ring-emerald-500/20'
+                        : 'bg-slate-900 border-slate-700 text-slate-300'
+                      }`}
+                  >
+                    <div className="font-bold text-sm flex items-center justify-between">
+                      <span>Muted (Click to Play)</span>
+                      {voiceWithCaptions === 'muted' && <Check className="w-4 h-4 text-emerald-400" />}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Read captions silently; tap "Play Voice" button on any message to hear it aloud.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setVoiceWithCaptions('auto_play')}
+                    className={`p-3 rounded-xl text-left border transition-all ${voiceWithCaptions === 'auto_play'
+                        ? 'bg-emerald-950/60 border-emerald-400 text-white ring-2 ring-emerald-500/20'
+                        : 'bg-slate-900 border-slate-700 text-slate-300'
+                      }`}
+                  >
+                    <div className="font-bold text-sm flex items-center justify-between">
+                      <span>Auto-Play Voice Always</span>
+                      {voiceWithCaptions === 'auto_play' && <Check className="w-4 h-4 text-emerald-400" />}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Always speak messages aloud as synthesized voice simultaneously with captions.
                     </p>
                   </button>
                 </div>

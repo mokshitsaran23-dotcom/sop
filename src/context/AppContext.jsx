@@ -32,6 +32,11 @@ export function AppProvider({ children }) {
     return localStorage.getItem('vocalease_trans_display') || 'both';
   });
 
+  // Audio preference when captions are ON ('muted' | 'auto_play')
+  const [voiceWithCaptions, setVoiceWithCaptions] = useState(() => {
+    return localStorage.getItem('vocalease_voice_with_captions') || 'muted';
+  });
+
   // Sound effects toggle
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('vocalease_sound');
@@ -90,6 +95,11 @@ export function AppProvider({ children }) {
     localStorage.setItem('vocalease_trans_display', translationDisplayMode);
   }, [translationDisplayMode]);
 
+  // Save voice with captions preference
+  useEffect(() => {
+    localStorage.setItem('vocalease_voice_with_captions', voiceWithCaptions);
+  }, [voiceWithCaptions]);
+
   // Save Daily URL
   useEffect(() => {
     localStorage.setItem('vocalease_daily_url', dailyRoomUrl);
@@ -129,6 +139,8 @@ export function AppProvider({ children }) {
         setCaptionsEnabled,
         translationDisplayMode,
         setTranslationDisplayMode,
+        voiceWithCaptions,
+        setVoiceWithCaptions,
         soundEnabled,
         setSoundEnabled,
         dailyRoomUrl,

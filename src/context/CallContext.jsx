@@ -10,7 +10,7 @@ import { soundEffects } from '../services/soundEffects';
 const CallContext = createContext(null);
 
 export function CallProvider({ children }) {
-  const { userLanguage, captionsEnabled, translationDisplayMode, dailyRoomUrl } = useApp();
+  const { userLanguage, captionsEnabled, voiceWithCaptions, dailyRoomUrl } = useApp();
 
   // Call status: 'idle' | 'pre_call_confirm' | 'connecting' | 'connected' | 'ended'
   const [callStatus, setCallStatus] = useState('idle');
@@ -30,6 +30,12 @@ export function CallProvider({ children }) {
   const [callerCaptionsEnabled, setCallerCaptionsEnabled] = useState(true);
   // Right Panel (Called Person): receives your captions
   const [calleeCaptionsEnabled, setCalleeCaptionsEnabled] = useState(true);
+
+  // Active voice playback states for each receiver panel
+  const [leftVoicePlaying, setLeftVoicePlaying] = useState(false);
+  const [rightVoicePlaying, setRightVoicePlaying] = useState(false);
+  const [leftLastAudioPayload, setLeftLastAudioPayload] = useState(null);
+  const [rightLastAudioPayload, setRightLastAudioPayload] = useState(null);
 
   // PUSH-TO-TOGGLE Recording States for each side
   const [callerRecording, setCallerRecording] = useState(false);
@@ -61,6 +67,49 @@ export function CallProvider({ children }) {
 
   // Temporary buffer ref for recording session
   const activeTranscriptRef = useRef('');
+
+  // Helper to play received voice audio on Left panel (Your side)
+  const playLeftVoice = useCallback(async (audioPayload) => {
+    if (!audioPayload) return;
+    setLeftVoicePlaying(true);
+    try {
+      await ttsService.playAudioPayload(audioPayload, {
+        onStart: () => setLeftVoicePlaying(true),
+        onEnd: () => setLeftVoicePlaying(false),
+        onError: () => setLeftVoicePlaying(false),
+      });
+    } finally {
+      setLeftVoicePlaying(false);
+    }
+  }, []);
+
+  // Helper to play received voice audio on Right panel (Called Person's side)
+  const playRightVoice = useCallback(async (audioPayload) => {
+    if (!audioPayload) return;
+    setRightVoicePlaying(true);
+    try {
+      await ttsService.playAudioPayload(audioPayload, {
+        onStart: () => setRightVoicePlaying(true),
+        onEnd: () => setRightVoicePlaying(false),
+        onError: () => setRightVoicePlaying(false),
+      });
+    } finally {
+      setRightVoicePlaying(false);
+    }
+  }, []);
+
+  // Replay helpers for on-demand listening
+  const replayLeftVoice = () => {
+    if (leftLastAudioPayload?.audio) {
+      playLeftVoice(leftLastAudioPayload.audio);
+    }
+  };
+
+  const replayRightVoice = () => {
+    if (rightLastAudioPayload?.audio) {
+      playRightVoice(rightLastAudioPayload.audio);
+    }
+  };
 
   // Initialize caption toggles from global preference on load
   useEffect(() => {
@@ -104,6 +153,10 @@ export function CallProvider({ children }) {
     setRightPanelCaption({ text: '', translation: '', isFinal: true });
     setLeftPanelHistory([]);
     setRightPanelHistory([]);
+    setLeftLastAudioPayload(null);
+    setRightLastAudioPayload(null);
+    setLeftVoicePlaying(false);
+    setRightVoicePlaying(false);
     setTtsMessages([]);
     setCallerRecording(false);
     setCalleeRecording(false);
@@ -113,17 +166,45 @@ export function CallProvider({ children }) {
 
     const roomId = activeContact?.id ? `room_${activeContact.id}` : 'room_general';
 
-    // Initialize WebRTC peer channel
+    // Initialize WebRTC peer channel with dual text + voice delivery
     webrtcService.initPeerChannel(roomId, async (remoteData) => {
       if (remoteData.type === 'caller_speech_final') {
-        // Remote peer (if other tab was caller)
-        setRightPanelCaption(remoteData.payload);
+        // Remote peer is caller; local receiver is callee (Right Panel)
+        const payload = remoteData.payload;
+        setRightPanelCaption(payload);
+        setRightPanelHistory(prev => [...prev.slice(-30), payload]);
+        setRightLastAudioPayload(payload);
+        soundEffects.playCaptionReceived();
+
+        // If callee captions OFF: automatically play voice
+        // If callee captions ON: play voice if preference is auto_play
+        if (!calleeCaptionsEnabled || voiceWithCaptions === 'auto_play') {
+          playRightVoice(payload.audio);
+        }
       } else if (remoteData.type === 'callee_speech_final') {
-        // Remote peer (if other tab was callee)
-        setLeftPanelCaption(remoteData.payload);
+        // Remote peer is callee; local receiver is caller (Left Panel)
+        const payload = remoteData.payload;
+        setLeftPanelCaption(payload);
+        setLeftPanelHistory(prev => [...prev.slice(-30), payload]);
+        setLeftLastAudioPayload(payload);
+        soundEffects.playCaptionReceived();
+
+        // If caller captions OFF: automatically play voice
+        // If caller captions ON: play voice if preference is auto_play
+        if (!callerCaptionsEnabled || voiceWithCaptions === 'auto_play') {
+          playLeftVoice(payload.audio);
+        }
       } else if (remoteData.type === 'tts_message') {
         soundEffects.playMessageSent();
-        setTtsMessages(prev => [...prev, remoteData.payload]);
+        const payload = remoteData.payload;
+        setTtsMessages(prev => [...prev, payload]);
+        setRightPanelCaption(payload);
+        setRightPanelHistory(prev => [...prev.slice(-30), payload]);
+        setRightLastAudioPayload(payload);
+
+        if (!calleeCaptionsEnabled || voiceWithCaptions === 'auto_play') {
+          playRightVoice(payload.audio);
+        }
       }
     });
 
@@ -195,7 +276,16 @@ export function CallProvider({ children }) {
       }
       setIsTranslating(false);
 
+      const textToDeliver = translatedText || spokenText;
+
+      // Generate TTS from the final transcript before sending
+      const audioPayload = await ttsService.generateAudioPayload(textToDeliver, calleeLanguage);
+
       const captionPayload = {
+        transcript: textToDeliver,
+        audio: audioPayload,
+        timestamp: Date.now(),
+        senderId: 'caller',
         id: Date.now() + Math.random(),
         speaker: 'You',
         text: spokenText,
@@ -208,7 +298,15 @@ export function CallProvider({ children }) {
       // Display caption in Alex Johnson's / Called Person's listener box (Right Panel)
       setRightPanelCaption(captionPayload);
       setRightPanelHistory(prev => [...prev.slice(-30), captionPayload]);
+      setRightLastAudioPayload(captionPayload);
       soundEffects.playCaptionReceived();
+
+      // Receiver decides UI & playback based on caption setting:
+      // captionsEnabled = true -> display transcript + play/mute audio based on user preference
+      // captionsEnabled = false -> hide transcript and auto-play audio
+      if (!calleeCaptionsEnabled || voiceWithCaptions === 'auto_play') {
+        playRightVoice(audioPayload);
+      }
 
       // Broadcast to peer
       webrtcService.sendPeerData('caller_speech_final', captionPayload);
@@ -286,7 +384,16 @@ export function CallProvider({ children }) {
       }
       setIsTranslating(false);
 
+      const textToDeliver = translatedText || spokenText;
+
+      // Generate TTS from the final transcript before sending
+      const audioPayload = await ttsService.generateAudioPayload(textToDeliver, callerLanguage);
+
       const captionPayload = {
+        transcript: textToDeliver,
+        audio: audioPayload,
+        timestamp: Date.now(),
+        senderId: 'callee',
         id: Date.now() + Math.random(),
         speaker: activeContact?.name || 'Contact',
         text: spokenText,
@@ -299,15 +406,18 @@ export function CallProvider({ children }) {
       // Display caption in Your listener box (Left Panel)
       setLeftPanelCaption(captionPayload);
       setLeftPanelHistory(prev => [...prev.slice(-30), captionPayload]);
+      setLeftLastAudioPayload(captionPayload);
       soundEffects.playCaptionReceived();
+
+      // Receiver decides UI & playback based on caption setting:
+      // captionsEnabled = true -> display transcript + play/mute audio based on user preference
+      // captionsEnabled = false -> hide transcript and auto-play audio
+      if (!callerCaptionsEnabled || voiceWithCaptions === 'auto_play') {
+        playLeftVoice(audioPayload);
+      }
 
       // Broadcast to peer
       webrtcService.sendPeerData('callee_speech_final', captionPayload);
-
-      // In TTS mode, also speak reply aloud
-      if (callMode === 'tts') {
-        ttsService.speak(translatedText, callerLanguage);
-      }
     }
   };
 
@@ -328,9 +438,17 @@ export function CallProvider({ children }) {
     }
     setIsTranslating(false);
 
+    const textToDeliver = translatedForCallee || typedText;
+    const audioPayload = await ttsService.generateAudioPayload(textToDeliver, calleeLanguage);
+
     const messageObj = {
+      transcript: textToDeliver,
+      audio: audioPayload,
+      timestamp: Date.now(),
+      senderId: 'caller',
       id: Date.now(),
       sender: 'user',
+      speaker: 'You',
       originalText: typedText,
       translatedText: translatedForCallee,
       spokenLang: calleeLanguage,
@@ -341,7 +459,11 @@ export function CallProvider({ children }) {
 
     // Destination: display in Right Panel caption box as what You spoke
     const captionPayload = {
-      id: Date.now(),
+      transcript: textToDeliver,
+      audio: audioPayload,
+      timestamp: messageObj.timestamp,
+      senderId: 'caller',
+      id: messageObj.id,
       speaker: 'You',
       text: typedText,
       translation: translatedForCallee,
@@ -351,12 +473,15 @@ export function CallProvider({ children }) {
     };
     setRightPanelCaption(captionPayload);
     setRightPanelHistory(prev => [...prev.slice(-30), captionPayload]);
+    setRightLastAudioPayload(captionPayload);
 
-    // Speak aloud in callee's language
-    await ttsService.speak(translatedForCallee, calleeLanguage);
+    // Receiver decision on Right Panel
+    if (!calleeCaptionsEnabled || voiceWithCaptions === 'auto_play') {
+      playRightVoice(audioPayload);
+    }
 
     // Broadcast message to remote peer
-    webrtcService.sendPeerData('tts_message', messageObj);
+    webrtcService.sendPeerData('tts_message', captionPayload);
   };
 
   // End Call
@@ -369,6 +494,8 @@ export function CallProvider({ children }) {
     setCalleeRecording(false);
     setCallerSoundLevel(0);
     setCalleeSoundLevel(0);
+    setLeftVoicePlaying(false);
+    setRightVoicePlaying(false);
     setCallStatus('idle');
     setActiveContact(null);
   };
@@ -412,6 +539,16 @@ export function CallProvider({ children }) {
         rightPanelCaption,   // displayed on Right side (Called person reads your speech)
         leftPanelHistory,
         rightPanelHistory,
+
+        // Voice playback controls & states
+        leftVoicePlaying,
+        rightVoicePlaying,
+        playLeftVoice,
+        playRightVoice,
+        replayLeftVoice,
+        replayRightVoice,
+        leftLastAudioPayload,
+        rightLastAudioPayload,
 
         // TTS mode data
         ttsMessages,

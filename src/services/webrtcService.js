@@ -75,9 +75,10 @@ class WebRTCService {
   sendPeerData(type, payload) {
     if (this.broadcastChannel) {
       try {
+        const cleanPayload = JSON.parse(JSON.stringify(payload));
         this.broadcastChannel.postMessage({
           type,
-          payload,
+          payload: cleanPayload,
           timestamp: Date.now(),
         });
       } catch (err) {
