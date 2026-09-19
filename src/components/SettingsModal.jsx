@@ -38,7 +38,7 @@ export default function SettingsModal() {
     setDailyRoomUrl
   } = useApp();
 
-  const [availableVoices, setAvailableVoices] = useState([]);
+  const [_availableVoices, setAvailableVoices] = useState([]);
   const [selectedVoiceURI, setSelectedVoiceURI] = useState('');
   const [speechRate, setSpeechRate] = useState(1.0);
   const [speechPitch, setSpeechPitch] = useState(1.0);
@@ -67,24 +67,24 @@ export default function SettingsModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-fadeIn"
       role="dialog"
       aria-modal="true"
       aria-labelledby="settings-title"
     >
-      <div className="relative w-full max-w-2xl bg-slate-900 border-2 border-slate-700 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="relative w-full max-w-2xl bg-slate-900 border-2 border-slate-700 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] sm:max-h-[90vh] my-auto">
 
         {/* Header */}
-        <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30">
-              <Settings className="w-6 h-6" aria-hidden="true" />
+        <div className="p-4 sm:p-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/90 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 shrink-0">
+              <Settings className="w-5 h-5 sm:w-6 sm:h-6" aria-hidden="true" />
             </div>
             <div>
-              <h2 id="settings-title" className="text-2xl font-black text-white">
+              <h2 id="settings-title" className="text-xl sm:text-2xl font-black text-white">
                 Application Settings
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-[11px] sm:text-xs text-slate-400 line-clamp-1">
                 Customize accessibility, voice synthesis, captions, and calling
               </p>
             </div>
@@ -94,14 +94,14 @@ export default function SettingsModal() {
             type="button"
             onClick={() => setIsSettingsOpen(false)}
             aria-label="Close settings"
-            className="touch-target-large p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors"
+            className="touch-target-large p-2 sm:p-2.5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors shrink-0"
           >
-            <X className="w-6 h-6" aria-hidden="true" />
+            <X className="w-5 h-5 sm:w-6 sm:h-6" aria-hidden="true" />
           </button>
         </div>
 
         {/* Settings Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 sm:space-y-6">
 
           {/* Section 1: Visual Accessibility */}
           <div className="space-y-4">
@@ -391,11 +391,11 @@ export default function SettingsModal() {
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-slate-800 bg-slate-900/90 flex justify-end">
+        <div className="p-4 sm:p-6 border-t border-slate-800 bg-slate-900/90 flex justify-end shrink-0">
           <button
             type="button"
             onClick={() => setIsSettingsOpen(false)}
-            className="touch-target-large px-8 py-3 rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-base transition-all"
+            className="touch-target-large w-full sm:w-auto px-8 py-3 rounded-xl sm:rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-base transition-all text-center"
           >
             Done
           </button>

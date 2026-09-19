@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { useCall } from '../context/CallContext';
 import { useApp } from '../context/AppContext';
 import { 
@@ -13,7 +13,8 @@ import {
   User, 
   Volume2,
   VolumeX,
-  RotateCcw
+  RotateCcw,
+  Columns
 } from 'lucide-react';
 
 export default function SpeechToTextCallScreen() {
@@ -60,68 +61,117 @@ export default function SpeechToTextCallScreen() {
     setVoiceWithCaptions,
     setIsSettingsOpen 
   } = useApp();
+
+  const [mobileTab, setMobileTab] = useState('caller'); // 'caller' | 'callee' | 'both'
   const leftCaptionRef = useRef(null);
   const rightCaptionRef = useRef(null);
 
   const isBilingual = callerLangObj.shortCode !== calleeLangObj.shortCode;
 
   return (
-    <div className="flex-1 flex flex-col h-full max-w-7xl mx-auto w-full p-4 sm:p-6 gap-4">
+    <div className="flex-1 flex flex-col h-full max-w-7xl mx-auto w-full p-2.5 sm:p-4 md:p-6 gap-3 sm:gap-4">
       
       {/* Top Call Info Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900/80 border border-slate-800 backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse" />
+      <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 p-3 sm:p-4 rounded-2xl bg-slate-900/80 border border-slate-800 backdrop-blur-md">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="relative shrink-0">
+            <div className="w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full bg-emerald-400 animate-pulse" />
             <div className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-white text-base sm:text-lg">
+              <span className="font-extrabold text-white text-sm sm:text-base md:text-lg">
                 Speech-to-Text Live Call
               </span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/30 font-bold">
+              <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/30 font-bold hidden xs:inline-block">
                 Independent Mic & Captions
               </span>
             </div>
-            <p className="text-xs text-slate-400">
-              Click "Talk" to record & speak • Click again to stop & send your caption to the listener's panel
+            <p className="text-[11px] sm:text-xs text-slate-400">
+              Tap "Talk" to speak • Tap again to send caption to listener
             </p>
           </div>
         </div>
 
         {/* Translation Status Badge */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-800">
           {isBilingual ? (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-sky-950/60 border border-sky-500/30 text-sky-200 text-xs font-bold">
-              <Sparkles className="w-4 h-4 text-sky-400" />
+            <div className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-sky-950/60 border border-sky-500/30 text-sky-200 text-xs font-bold">
+              <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
               <span>{callerLangObj.flag} {callerLangObj.name}</span>
-              <ArrowRightLeft className="w-3.5 h-3.5 text-sky-400" />
+              <ArrowRightLeft className="w-3 h-3 text-sky-400 shrink-0" />
               <span>{calleeLangObj.flag} {calleeLangObj.name}</span>
             </div>
           ) : (
-            <div className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold border border-slate-700">
+            <div className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold border border-slate-700">
               Same Language ({callerLangObj.name})
             </div>
           )}
 
           {isTranslating && (
-            <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold animate-pulse">
-              Translating caption...
+            <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold animate-pulse">
+              Translating...
             </span>
           )}
         </div>
       </div>
 
+      {/* Mobile Participant Tab Switcher (Visible only on small screens) */}
+      <div className="flex md:hidden items-center p-1 bg-slate-900 border border-slate-700/80 rounded-2xl gap-1">
+        <button
+          type="button"
+          onClick={() => setMobileTab('caller')}
+          className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+            mobileTab === 'caller'
+              ? 'bg-sky-500 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <User className="w-3.5 h-3.5 shrink-0" />
+          <span>You</span>
+          {callerRecording && <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMobileTab('callee')}
+          className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+            mobileTab === 'callee'
+              ? 'bg-emerald-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <div className="w-3.5 h-3.5 rounded-full bg-white/20 flex items-center justify-center text-[9px] font-black shrink-0">
+            {activeContact?.avatar || 'CP'}
+          </div>
+          <span className="truncate max-w-[90px]">{activeContact?.name?.split(' ')[0] || 'Contact'}</span>
+          {(calleeRecording || rightVoicePlaying) && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setMobileTab('both')}
+          className={`py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all ${
+            mobileTab === 'both'
+              ? 'bg-slate-800 text-white border border-slate-600'
+              : 'text-slate-400 hover:text-white'
+          }`}
+          title="Show both participants stacked"
+        >
+          <Columns className="w-3.5 h-3.5 shrink-0" />
+          <span>Both</span>
+        </button>
+      </div>
+
       {/* Split-Screen Call Area */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 min-h-[440px]">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-6 min-h-0">
         
         {/* ======================================================== */}
         {/* LEFT PANEL: YOU (CURRENT USER)                           */}
         {/* Has own Talk button + own Captions toggle               */}
         {/* Displays caption received from CALLED PERSON             */}
         {/* ======================================================== */}
-        <div className="relative flex flex-col rounded-3xl bg-slate-900/90 border-2 border-slate-800 p-5 sm:p-6 shadow-xl">
+        <div className={`${mobileTab === 'caller' || mobileTab === 'both' ? 'flex' : 'hidden'} md:flex relative flex-col rounded-2xl sm:rounded-3xl bg-slate-900/90 border-2 border-slate-800 p-4 sm:p-6 shadow-xl`}>
           
           {/* Header Row: User Info & Independent Captions Toggle */}
           <div className="flex items-center justify-between mb-4 gap-2">
@@ -362,7 +412,7 @@ export default function SpeechToTextCallScreen() {
         {/* Has own Talk button + own Captions toggle               */}
         {/* Displays caption received from YOU                       */}
         {/* ======================================================== */}
-        <div className="relative flex flex-col rounded-3xl bg-slate-900/90 border-2 border-slate-800 p-5 sm:p-6 shadow-xl">
+        <div className={`${mobileTab === 'callee' || mobileTab === 'both' ? 'flex' : 'hidden'} md:flex relative flex-col rounded-2xl sm:rounded-3xl bg-slate-900/90 border-2 border-slate-800 p-4 sm:p-6 shadow-xl`}>
           
           {/* Header Row: Callee Info & Independent Captions Toggle */}
           <div className="flex items-center justify-between mb-4 gap-2">
@@ -601,28 +651,28 @@ export default function SpeechToTextCallScreen() {
       </div>
 
       {/* Floating Bottom Control Bar */}
-      <div className="p-4 rounded-3xl bg-slate-900 border-2 border-slate-700 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+      <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-slate-900/95 border-2 border-slate-700 shadow-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sticky bottom-2 z-20 backdrop-blur-md pb-safe">
         
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">
-            Dual Delivery: Text Captions + Real-Time Synthesized Voice
+        <div className="flex items-center gap-2 justify-center sm:justify-start">
+          <span className="text-[10px] sm:text-xs font-extrabold text-slate-400 uppercase tracking-wider text-center sm:text-left">
+            Dual Delivery: Text Captions + Real-Time Voice
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 sm:gap-3">
           {/* Voice with Captions Preference Toggle */}
           <button
             type="button"
             onClick={() => setVoiceWithCaptions(prev => prev === 'auto_play' ? 'muted' : 'auto_play')}
-            className={`touch-target-large px-3.5 py-2.5 rounded-xl border font-bold text-xs flex items-center gap-2 transition-colors ${
+            className={`touch-target-large px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border font-bold text-xs flex items-center gap-1.5 sm:gap-2 transition-colors flex-1 sm:flex-initial justify-center ${
               voiceWithCaptions === 'auto_play'
                 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                 : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
             }`}
             title="When captions are ON: choose whether voice also auto-plays or stays muted until clicked"
           >
-            {voiceWithCaptions === 'auto_play' ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
-            <span>Voice with Captions: {voiceWithCaptions === 'auto_play' ? 'Auto-Play' : 'Muted'}</span>
+            {voiceWithCaptions === 'auto_play' ? <Volume2 className="w-4 h-4 text-emerald-400 shrink-0" /> : <VolumeX className="w-4 h-4 text-slate-400 shrink-0" />}
+            <span className="truncate">Voice: {voiceWithCaptions === 'auto_play' ? 'Auto-Play' : 'Muted'}</span>
           </button>
 
           {/* Translation Format Toggle */}
@@ -630,11 +680,11 @@ export default function SpeechToTextCallScreen() {
             <button
               type="button"
               onClick={() => setTranslationDisplayMode(prev => prev === 'both' ? 'translated_only' : 'both')}
-              className="touch-target-large px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs flex items-center gap-2 transition-colors"
+              className="touch-target-large px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs flex items-center gap-1.5 sm:gap-2 transition-colors flex-1 sm:flex-initial justify-center"
               title="Toggle between bilingual and translated-only view"
             >
-              <Languages className="w-4 h-4 text-sky-400" />
-              <span>Format: {translationDisplayMode === 'both' ? 'Both' : 'Translated Only'}</span>
+              <Languages className="w-4 h-4 text-sky-400 shrink-0" />
+              <span className="truncate">Format: {translationDisplayMode === 'both' ? 'Both' : 'Translated Only'}</span>
             </button>
           )}
 
@@ -643,7 +693,7 @@ export default function SpeechToTextCallScreen() {
             type="button"
             onClick={() => setIsSettingsOpen(true)}
             aria-label="Open settings"
-            className="touch-target-large p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+            className="touch-target-large p-2 sm:p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
           >
             <Settings className="w-5 h-5" aria-hidden="true" />
           </button>
@@ -653,7 +703,7 @@ export default function SpeechToTextCallScreen() {
             type="button"
             onClick={endCall}
             aria-label="End call and return to home"
-            className="touch-target-large px-6 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-sm flex items-center gap-2 shadow-xl shadow-rose-600/30 transition-all active:scale-95"
+            className="touch-target-large w-full sm:w-auto px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl shadow-rose-600/30 transition-all active:scale-95"
           >
             <PhoneOff className="w-4 h-4" aria-hidden="true" />
             <span>End Call</span>

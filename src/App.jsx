@@ -23,7 +23,7 @@ function MainContent() {
   const isInsideCall = callStatus === 'connected' || callStatus === 'connecting';
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#0b1120] text-slate-100 font-sans transition-colors duration-200">
+    <div className="min-h-screen w-full overflow-x-hidden flex flex-col bg-[#0b1120] text-slate-100 font-sans transition-colors duration-200">
       {/* Top Accessible Navbar */}
       <Navbar />
 
