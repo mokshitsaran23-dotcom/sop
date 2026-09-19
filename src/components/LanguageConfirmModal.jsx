@@ -164,11 +164,11 @@ export default function LanguageConfirmModal() {
         )}
 
         {/* Action Buttons */}
-        <div className="flex flex-col-reverse sm:flex-row gap-2.5 sm:gap-3">
+        <div className="flex flex-col-reverse sm:flex-row items-stretch gap-3 pt-2">
           <button
             type="button"
             onClick={cancelPreCall}
-            className="touch-target-large w-full sm:flex-1 py-3 sm:py-4 px-4 sm:px-6 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-bold text-sm sm:text-base transition-colors text-center"
+            className="touch-target-large w-full sm:w-36 shrink-0 py-3.5 sm:py-4 px-5 rounded-xl sm:rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-bold text-base transition-colors flex items-center justify-center text-center shadow-md"
           >
             Cancel
           </button>
@@ -176,7 +176,7 @@ export default function LanguageConfirmModal() {
           <button
             type="button"
             onClick={startCall}
-            className="touch-target-large w-full sm:flex-2 py-3.5 sm:py-4 px-4 sm:px-8 rounded-xl sm:rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-extrabold text-base sm:text-lg flex items-center justify-center gap-2.5 sm:gap-3 shadow-xl shadow-sky-500/30 transition-all active:scale-95"
+            className="touch-target-large w-full sm:flex-1 py-3.5 sm:py-4 px-6 rounded-xl sm:rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-extrabold text-base sm:text-lg flex items-center justify-center gap-2.5 sm:gap-3 shadow-xl shadow-sky-500/30 transition-all active:scale-95 text-center"
           >
             <PhoneCall className="w-5 h-5 shrink-0" aria-hidden="true" />
             <span>Connect Call Now</span>
