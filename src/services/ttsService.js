@@ -6,11 +6,20 @@ class TTSService {
     this.voices = [];
     this.isSpeakingNow = false;
     this.onStateChangeCallback = null;
+    this.currentAudioElement = null;
+    this.currentBlobUrl = null;
 
     if (this.synth) {
       this.loadVoices();
-      if (this.synth.onvoiceschanged !== undefined) {
-        this.synth.onvoiceschanged = () => this.loadVoices();
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        if (window.speechSynthesis.addEventListener) {
+          window.speechSynthesis.addEventListener('voiceschanged', () => {
+            this.loadVoices();
+          });
+        }
+        if (this.synth.onvoiceschanged !== undefined) {
+          this.synth.onvoiceschanged = () => this.loadVoices();
+        }
       }
     }
   }
@@ -21,26 +30,44 @@ class TTSService {
 
   loadVoices() {
     if (!this.synth) return [];
-    this.voices = this.synth.getVoices();
-    return this.voices;
-  }
-
-  getVoices() {
-    if (this.voices.length === 0 && this.synth) {
-      this.loadVoices();
+    const v = this.synth.getVoices();
+    if (v && v.length > 0) {
+      this.voices = v;
     }
     return this.voices;
   }
 
+  getVoices() {
+    if ((!this.voices || this.voices.length === 0) && this.synth) {
+      this.loadVoices();
+    }
+    return this.voices || [];
+  }
+
   getVoicesForLanguage(langCode) {
     const lang = getLanguageByCode(langCode);
-    const shortCode = lang.shortCode.toLowerCase();
-    const fullCode = lang.code.toLowerCase();
+    const shortCode = (lang?.shortCode || langCode?.split('-')[0] || 'en').toLowerCase();
+    const fullCode = (lang?.code || langCode || 'en-US').toLowerCase();
 
     const allVoices = this.getVoices();
     return allVoices.filter(v => {
-      const vLang = v.lang.toLowerCase();
-      return vLang === fullCode || vLang.startsWith(shortCode) || vLang.replace('_', '-') === fullCode;
+      const vLang = (v.lang || '').toLowerCase().replace('_', '-');
+      const vName = (v.name || '').toLowerCase();
+
+      // 1. Direct language code matches
+      if (vLang === fullCode || vLang.startsWith(shortCode + '-') || vLang === shortCode) {
+        return true;
+      }
+
+      // 2. Language-specific name / script identifiers
+      if (shortCode === 'ta' && (vName.includes('tamil') || vName.includes('தமிழ்') || vName.includes('ta-in') || vName.includes('ta_in'))) {
+        return true;
+      }
+      if (shortCode === 'ar' && (vName.includes('arabic') || vName.includes('العربية') || vName.includes('maged') || vName.includes('tarik') || vName.includes('laila') || vName.includes('salma') || vName.includes('ar-sa') || vName.includes('ar-xa'))) {
+        return true;
+      }
+
+      return false;
     });
   }
 
@@ -70,14 +97,14 @@ class TTSService {
       return voices.find(v => v.default) || voices[0];
     }
 
-    // Non-English languages (Tamil, Hindi, etc.) without an installed system voice must return null
+    // Non-English languages (Tamil, Arabic, etc.) without an installed system voice must return null
     // so we can seamlessly route to the natural audio stream instead of an English voice failing silently.
     return null;
   }
 
   getStreamUrlForText(text, langCode = 'en-US') {
     const lang = getLanguageByCode(langCode);
-    const shortLang = lang?.shortCode || 'en';
+    const shortLang = (lang?.shortCode || langCode?.split('-')[0] || 'en').toLowerCase();
     return `/api/tts?tl=${encodeURIComponent(shortLang)}&q=${encodeURIComponent(text.trim())}`;
   }
 
@@ -94,16 +121,16 @@ class TTSService {
       const voice = this.findBestVoice(langCode, options.voiceURI);
 
       // If no suitable native voice exists for this language (e.g. Tamil on Windows),
-      // do NOT assign an English voice that goes mute! Route directly to natural audio stream!
+      // route directly to natural audio stream
       if (!voice) {
         const streamUrl = this.getStreamUrlForText(text, langCode);
-        this.playAudioElement(streamUrl, options).then(resolve);
+        this.playAudioElement(streamUrl, options, text, langCode).then(resolve);
         return;
       }
 
       if (!this.synth) {
         const streamUrl = this.getStreamUrlForText(text, langCode);
-        this.playAudioElement(streamUrl, options).then(resolve);
+        this.playAudioElement(streamUrl, options, text, langCode).then(resolve);
         return;
       }
 
@@ -131,7 +158,7 @@ class TTSService {
         console.warn('SpeechSynthesis error, falling back to audio stream:', e);
         this.isSpeakingNow = false;
         const streamUrl = this.getStreamUrlForText(text, langCode);
-        await this.playAudioElement(streamUrl, options);
+        await this.playAudioElement(streamUrl, options, text, langCode);
         resolve();
       };
 
@@ -141,7 +168,7 @@ class TTSService {
         console.warn('SpeechSynthesis exception, streaming audio instead:', err);
         this.isSpeakingNow = false;
         const streamUrl = this.getStreamUrlForText(text, langCode);
-        this.playAudioElement(streamUrl, options).then(resolve);
+        this.playAudioElement(streamUrl, options, text, langCode).then(resolve);
       }
     });
   }
@@ -162,7 +189,7 @@ class TTSService {
 
     const trimmed = text.trim();
     const lang = getLanguageByCode(langCode);
-    const shortLang = lang?.shortCode || 'en';
+    const shortLang = (lang?.shortCode || langCode?.split('-')[0] || 'en').toLowerCase();
     const bestVoice = this.findBestVoice(langCode, options.voiceURI);
 
     // Fast streaming TTS audio URL via local proxy and Google TTS fallback
@@ -248,7 +275,7 @@ class TTSService {
     const lang = typeof audioPayload === 'object' ? (audioPayload.lang || 'en-US') : (options.lang || 'en-US');
     const voiceURI = typeof audioPayload === 'object' ? audioPayload.voiceURI : options.voiceURI;
     const targetUrl = typeof audioPayload === 'object' 
-      ? (audioPayload.url || audioPayload.streamUrl || this.getStreamUrlForText(text, lang))
+      ? (audioPayload.url || this.getStreamUrlForText(text, lang))
       : this.getStreamUrlForText(text, lang);
 
     if (!text || !text.trim()) return;
@@ -265,73 +292,171 @@ class TTSService {
         onEnd: options.onEnd,
         onError: async (err) => {
           console.warn('SpeechSynthesis error, falling back to audio stream:', err);
-          await this.playAudioElement(targetUrl, options);
+          await this.playAudioElement(targetUrl, options, text, lang);
         },
       });
     }
 
     // No native voice installed for this language (e.g. Tamil on Windows)
-    // Play fluent, authentic audio stream via our proxy / Google TTS stream!
-    return this.playAudioElement(targetUrl, options);
+    // Play fluent, authentic audio stream via our serverless / proxy stream!
+    return this.playAudioElement(targetUrl, options, text, lang);
   }
 
-  playAudioElement(srcUrl, options = {}) {
-    return new Promise((resolve) => {
-      if (!srcUrl) {
+  playAudioElement(srcUrl, options = {}, fallbackText = '', langCode = 'en-US') {
+    return new Promise(async (resolve) => {
+      // 1. Stop any previous playback
+      this.stop();
+
+      if (!srcUrl && !fallbackText) {
         resolve();
         return;
       }
 
-      // Stop any existing audio
-      this.stop();
+      // Helper to attempt browser SpeechSynthesis fallback if stream fails
+      const trySpeechSynthesisFallback = () => {
+        if (fallbackText && this.synth && typeof window !== 'undefined') {
+          try {
+            const utterance = new SpeechSynthesisUtterance(fallbackText);
+            const langObj = getLanguageByCode(langCode);
+            utterance.lang = langObj?.code || langCode;
+            utterance.rate = options.rate || 1.0;
+            utterance.pitch = options.pitch || 1.0;
+            utterance.volume = options.volume !== undefined ? options.volume : 1.0;
+
+            utterance.onstart = () => {
+              this.isSpeakingNow = true;
+              if (this.onStateChangeCallback) this.onStateChangeCallback(true);
+              if (options.onStart) options.onStart();
+            };
+            utterance.onend = () => {
+              this.isSpeakingNow = false;
+              if (this.onStateChangeCallback) this.onStateChangeCallback(false);
+              if (options.onEnd) options.onEnd();
+            };
+            utterance.onerror = (e) => {
+              console.warn('SpeechSynthesis fallback error:', e);
+              this.isSpeakingNow = false;
+              if (this.onStateChangeCallback) this.onStateChangeCallback(false);
+              if (options.onError) options.onError(e);
+            };
+
+            this.synth.speak(utterance);
+            return true;
+          } catch (e) {
+            console.warn('SpeechSynthesis fallback exception:', e);
+          }
+        }
+        return false;
+      };
 
       try {
-        const audio = new Audio();
-        this.currentAudioElement = audio;
+        // Step 1: Pre-fetch stream with fetch() to ensure 200 OK and get Blob
+        let audioBlobUrl = null;
+        if (srcUrl) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
+            const res = await fetch(srcUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
 
-        audio.onplay = () => {
-          this.isSpeakingNow = true;
-          if (this.onStateChangeCallback) this.onStateChangeCallback(true);
-          if (options.onStart) options.onStart();
-        };
-
-        audio.onended = () => {
-          this.isSpeakingNow = false;
-          this.currentAudioElement = null;
-          if (this.onStateChangeCallback) this.onStateChangeCallback(false);
-          if (options.onEnd) options.onEnd();
-          resolve();
-        };
-
-        audio.onerror = (e) => {
-          console.warn('Audio stream playback error:', e);
-          this.isSpeakingNow = false;
-          this.currentAudioElement = null;
-          if (this.onStateChangeCallback) this.onStateChangeCallback(false);
-          if (options.onError) options.onError(e);
-          resolve();
-        };
-
-        audio.src = srcUrl;
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          playPromise.catch((err) => {
-            console.warn('Audio playback error on audio element:', err);
-            this.isSpeakingNow = false;
-            this.currentAudioElement = null;
-            if (this.onStateChangeCallback) this.onStateChangeCallback(false);
-            if (options.onError) options.onError(err);
-            resolve();
-          });
+            if (res.ok && (res.headers.get('content-type')?.includes('audio') || res.status === 200)) {
+              const blob = await res.blob();
+              if (blob.size > 0) {
+                audioBlobUrl = URL.createObjectURL(blob);
+                this.currentBlobUrl = audioBlobUrl;
+              }
+            } else {
+              console.warn(`TTS fetch responded with status ${res.status}`);
+            }
+          } catch (fetchErr) {
+            console.warn('TTS fetch failed or timed out:', fetchErr);
+          }
         }
+
+        const playableSrc = audioBlobUrl || srcUrl;
+
+        // Step 2: If we have a playable source URL
+        if (playableSrc) {
+          const audio = new Audio();
+          this.currentAudioElement = audio;
+
+          audio.onplay = () => {
+            this.isSpeakingNow = true;
+            if (this.onStateChangeCallback) this.onStateChangeCallback(true);
+            if (options.onStart) options.onStart();
+          };
+
+          audio.onended = () => {
+            this.cleanupAudio();
+            if (this.onStateChangeCallback) this.onStateChangeCallback(false);
+            if (options.onEnd) options.onEnd();
+            resolve();
+          };
+
+          audio.onerror = (e) => {
+            console.warn('Audio element error:', e);
+            this.cleanupAudio();
+            if (!trySpeechSynthesisFallback()) {
+              if (this.onStateChangeCallback) this.onStateChangeCallback(false);
+              if (options.onError) options.onError(e);
+            }
+            resolve();
+          };
+
+          audio.src = playableSrc;
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              console.warn('Audio play() promise rejected:', err);
+              this.cleanupAudio();
+              if (!trySpeechSynthesisFallback()) {
+                if (this.onStateChangeCallback) this.onStateChangeCallback(false);
+                if (options.onError) options.onError(err);
+              }
+              resolve();
+            });
+          }
+          return;
+        }
+
+        // If no playable source, try speech synthesis fallback directly
+        if (!trySpeechSynthesisFallback()) {
+          this.isSpeakingNow = false;
+          if (this.onStateChangeCallback) this.onStateChangeCallback(false);
+          if (options.onError) options.onError(new Error('Audio playback failed'));
+        }
+        resolve();
       } catch (err) {
-        console.warn('HTML Audio instantiation error:', err);
-        this.isSpeakingNow = false;
-        this.currentAudioElement = null;
-        if (this.onStateChangeCallback) this.onStateChangeCallback(false);
+        console.warn('playAudioElement unexpected exception:', err);
+        this.cleanupAudio();
+        if (!trySpeechSynthesisFallback()) {
+          if (this.onStateChangeCallback) this.onStateChangeCallback(false);
+          if (options.onError) options.onError(err);
+        }
         resolve();
       }
     });
+  }
+
+  cleanupAudio() {
+    this.isSpeakingNow = false;
+    if (this.currentAudioElement) {
+      try {
+        this.currentAudioElement.pause();
+        this.currentAudioElement.currentTime = 0;
+      } catch {
+        // ignore pause error
+      }
+      this.currentAudioElement = null;
+    }
+    if (this.currentBlobUrl) {
+      try {
+        URL.revokeObjectURL(this.currentBlobUrl);
+      } catch {
+        // ignore revoke error
+      }
+      this.currentBlobUrl = null;
+    }
   }
 
   stop() {
@@ -342,16 +467,7 @@ class TTSService {
         // ignore cancel error
       }
     }
-    if (this.currentAudioElement) {
-      try {
-        this.currentAudioElement.pause();
-        this.currentAudioElement.currentTime = 0;
-      } catch {
-        // ignore
-      }
-      this.currentAudioElement = null;
-    }
-    this.isSpeakingNow = false;
+    this.cleanupAudio();
     if (this.onStateChangeCallback) this.onStateChangeCallback(false);
   }
 

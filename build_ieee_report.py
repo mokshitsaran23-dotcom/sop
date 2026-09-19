@@ -629,57 +629,124 @@ def create_ieee_report():
         "O(K), where K <= K_max is the bounded number of active lines rendered in the Compose viewport."
     )
 
+    # Algorithm 5
+    add_alg(
+        5, "Dynamic Confidence-Based Hybrid Fallback Engine Arbiter",
+        "Audio chunk x, Local confidence C(x), Threshold theta_conf, Cloud ping L_cloud, Max cloud latency theta_lat",
+        "Selected ASR transcription engine Engine_sel, Text transcript Y_out",
+        [
+            "1:  (Y_local, C_local) <- LocalConformerEngine.transcribe(x)",
+            "2:  isNetReady <- NetworkMonitor.is5GOrWiFiConnected()",
+            "3:  if C_local >= theta_conf or not isNetReady then",
+            "4:      Engine_sel <- LOCAL_ON_DEVICE",
+            "5:      return (Engine_sel, Y_local)",
+            "6:  end if",
+            "7:  rtt <- NetworkMonitor.measureRecentPing()",
+            "8:  if rtt <= theta_lat then",
+            "9:      try",
+            "10:         (Y_cloud, C_cloud) <- CloudSpeechClient.transcribe(x, timeout=theta_lat)",
+            "11:         Engine_sel <- CLOUD_FALLBACK",
+            "12:         return (Engine_sel, Y_cloud)",
+            "13:     catch TimeoutException, NetworkException",
+            "14:         Engine_sel <- LOCAL_FALLBACK_RECOVERY",
+            "15:         return (Engine_sel, Y_local)",
+            "16:     end try",
+            "17: else",
+            "18:     Engine_sel <- LOCAL_ON_DEVICE",
+            "19:     return (Engine_sel, Y_local)",
+            "20: end if"
+        ],
+        "O(1) decision arbitration, bounded by max timeout theta_lat."
+    )
+
     # =============================================================
     # V. MATHEMATICAL FORMULATION
     # =============================================================
     add_h1("V. MATHEMATICAL FORMULATION")
     add_body(
-        "To rigorously quantify transcription fidelity, translation precision, end-to-end temporal latency, and dual-engine fallback thresholds, ClearCall implements the following mathematical formulations.",
+        "To rigorously quantify acoustic feature transformation, neural alignment, transcription fidelity, translation quality, latency bounds, and acoustic coupling attenuation, ClearCall implements the following mathematical formulations.",
         indent=False
     )
 
-    add_h2("A. Word Error Rate (WER)")
+    add_h2("A. Acoustic Feature Extraction and Mel-Filterbank Log Energy")
     add_body(
-        "Speech recognition accuracy is evaluated using the standardized Word Error Rate (WER) metric, derived from the Levenshtein minimum edit distance between the automatic transcription hypothesis H and the ground-truth human reference transcript R:",
+        "Continuous audio sampled at Fs = 16 kHz is partitioned into 25 ms windows with 10 ms stride. Windowing with a periodic Hamming window w[n] yields framed signal x_w[n]:",
         indent=False
     )
-    add_eq("WER = \\frac{S + D + I}{N} = \\frac{\\sum_{k=1}^{M} \\text{EditDist}(R_k, H_k)}{\\sum_{k=1}^{M} N_k}", 1)
+    add_eq("w[n] = 0.54 - 0.46 \\cos\\left(\\frac{2\\pi n}{N_w - 1}\\right), \\quad 0 \\leq n \\leq N_w - 1", 1)
     add_body(
-        "where S denotes the number of word substitutions, D represents the number of word deletions, I represents the number of spurious word insertions, and N is the total count of words in the ground-truth reference sequence. Word Recognition Accuracy (WRA) is subsequently formulated as WRA = (1 - WER) × 100%."
+        "The Short-Time Fourier Transform (STFT) magnitude spectrum is filtered through M = 80 triangular Mel-scale filterbank weighting functions H_m[k]:"
+    )
+    add_eq("S(t, m) = \\ln \\left( \\sum_{k=0}^{K/2} |X(t, k)|^2 \\cdot H_m[k] \\right), \\quad m = 1, 2, \\dots, M", 2)
+
+    add_h2("B. Connectionist Temporal Classification (CTC) Alignment")
+    add_body(
+        "Given acoustic feature matrix X = (x_1, ..., x_T) and transcription target Y = (y_1, ..., y_U) where U <= T, the conditional probability of alignment path \u03c0 = (\u03c0_1, ..., \u03c0_T) assuming conditional frame independence is:",
+        indent=False
+    )
+    add_eq("P(\\boldsymbol{\\pi} \\mid \\mathbf{X}) = \\prod_{t=1}^T P(\\pi_t \\mid \\mathbf{x}_t)", 3)
+    add_body(
+        "Under the many-to-one collapse operator B that removes consecutive duplicates and blank tokens \u03b5, the CTC loss function minimizes the negative log-likelihood:"
+    )
+    add_eq("\\mathcal{L}_{\\text{CTC}} = -\\ln P(\\mathbf{Y} \\mid \\mathbf{X}) = -\\ln \\sum_{\\boldsymbol{\\pi} \\in \\mathcal{B}^{-1}(\\mathbf{Y})} P(\\boldsymbol{\\pi} \\mid \\mathbf{X})", 4)
+
+    add_h2("C. Conformer Multi-Head Self-Attention Formulation")
+    add_body(
+        "The Conformer backbone [15] interleaves depthwise convolution with multi-head self-attention (MHSA). For query Q, key K, and value V projections with relative sinusoidal positional encoding S_rel:",
+        indent=False
+    )
+    add_eq("\\text{Attention}(\\mathbf{Q}, \\mathbf{K}, \\mathbf{V}) = \\text{softmax}\\left( \\frac{\\mathbf{Q}\\mathbf{K}^T + \\mathbf{S}_{\\text{rel}}}{\\sqrt{d_k}} \\right) \\mathbf{V}", 5)
+
+    add_h2("D. Word Error Rate (WER) and Word Recognition Accuracy (WRA)")
+    add_body(
+        "ASR accuracy is benchmarked using the standardized Word Error Rate (WER) via minimum Levenshtein edit distance between hypothesis H and ground truth R:",
+        indent=False
+    )
+    add_eq("\\text{WER} = \\frac{S + D + I}{N} = \\frac{S + D + I}{S + D + C}", 6)
+    add_body(
+        "where S, D, I, and C represent substitution, deletion, insertion, and correct counts respectively. Word Recognition Accuracy (WRA) is expressed as:"
+    )
+    add_eq("\\text{WRA} = \\left( 1 - \\text{WER} \\right) \\times 100\\%", 7)
+
+    add_h2("E. Neural Machine Translation and BLEU Evaluation")
+    add_body(
+        "On-device translation quality is evaluated using the Bilingual Evaluation Understudy (BLEU) score [14], combining modified n-gram precision p_n with brevity penalty BP:",
+        indent=False
+    )
+    add_eq("\\text{BLEU} = \\text{BP} \\cdot \\exp\\left( \\sum_{n=1}^{N_{\\max}} w_n \\ln p_n \\right)", 8)
+    add_body(
+        "where BP penalizes candidate translations of length c relative to reference length r:"
+    )
+    add_eq("\\text{BP} = \\begin{cases} 1, & \\text{if } c > r \\\\ \\exp\\left(1 - \\frac{r}{c}\\right), & \\text{if } c \\leq r \\end{cases}", 9)
+
+    add_h2("F. End-to-End Latency Decomposition")
+    add_body(
+        "Conversational turn-taking continuity enforces the constraint T_total < 450 ms, decomposed across all four pipeline stages:",
+        indent=False
+    )
+    add_eq("T_{\\text{total}} = T_{\\text{capture}} + T_{\\text{STT}} + T_{\\text{trans}} + T_{\\text{render}}", 10)
+    add_body(
+        "where T_capture = (N_chunk / F_s) + \u03b4_HAL (25 ms), T_STT \u2248 145 ms, T_trans \u2248 32 ms (cross-lingual; 0 ms for monolingual), and T_render \u2248 16.6 ms (VSYNC at 60 Hz), yielding a nominal end-to-end latency of 218 ms."
     )
 
-    add_h2("B. BLEU Score for Machine Translation")
+    add_h2("G. Acoustic Coupling Signal-to-Noise Ratio (SNR)")
     add_body(
-        "The linguistic quality of on-device neural machine translation is measured using the Bilingual Evaluation Understudy (BLEU) score [14], defined as the geometric mean of modified n-gram precisions penalized by a brevity factor:",
+        "For non-rooted cellular calls operating in speakerphone acoustic coupling mode, the effective signal-to-noise ratio captured at the microphone is modeled by:",
         indent=False
     )
-    add_eq("\\text{BLEU} = \\text{BP} \\cdot \\exp\\left( \\sum_{n=1}^{N_{max}} w_n \\ln p_n \\right)", 2)
+    add_eq("\\text{SNR}_{\\text{coupled}} = 10 \\log_{10} \\left( \\frac{P_{\\text{speaker}} \\cdot \\alpha_{\\text{path}}}{P_{\\text{ambient}} + \\sigma_{\\text{mic}}^2} \\right)", 11)
     add_body(
-        "where pn signifies the modified n-gram precision (clipped by the maximum frequency of n-grams in the reference translation), wn represents uniform weights typically assigned as wn = 1/Nmax for Nmax = 4, and BP represents the brevity penalty defined as:"
-    )
-    add_eq("\\text{BP} = \\begin{cases} 1, & \\text{if } c > r \\\\ \\exp\\left(1 - \\frac{r}{c}\\right), & \\text{if } c \\leq r \\end{cases}", 3)
-    add_body(
-        "where c is the candidate translation length in tokens, and r denotes the effective reference translation corpus length. A higher BLEU score corresponds directly to greater translation accuracy."
+        "where \u03b1_path \u221d 1/(4\u03c0 d^2) represents the inverse-square acoustic attenuation over the physical speaker-to-mic distance d \u2248 0.12 m, and P_speaker is maintained at 78 dB SPL."
     )
 
-    add_h2("C. Total System Latency Decomposition")
+    add_h2("H. Confidence-Based Dual-Engine Fallback Formulation")
     add_body(
-        "Total telephonic captioning latency T_total dictates whether interactive conversational turn-taking is preserved. It is mathematically decomposed into four sequential temporal components:",
+        "To balance on-device privacy against accuracy in noisy acoustic settings, ClearCall implements an adaptive selection function D(x):",
         indent=False
     )
-    add_eq("T_{\\text{total}} = T_{\\text{capture}} + T_{\\text{STT}} + T_{\\text{trans}} + T_{\\text{render}}", 4)
+    add_eq("\\mathcal{D}(x) = \\begin{cases} \\text{On-Device Engine}, & \\text{if } \\mathcal{C}(x) \\geq \\theta_{\\text{conf}} \\lor \\neg \\text{NetAvail} \\\\ \\text{Cloud Fallback}, & \\text{if } \\mathcal{C}(x) < \\theta_{\\text{conf}} \\land \\text{NetAvail} \\land \\mathcal{L}_{\\text{cloud}} \\leq \\theta_{\\text{lat}} \\\\ \\text{On-Device Engine}, & \\text{otherwise} \\end{cases}", 12)
     add_body(
-        "where T_capture represents the acoustic buffer filling and OS kernel driver scheduling latency (T_capture = N_samples / F_s + delta_driver), T_STT signifies the neural acoustic feature extraction and Conformer beam-search decoding latency, T_trans is the neural sequence-to-sequence translation latency (which equals zero when the source and target languages match), and T_render represents the Compose UI recomposition, layout, and display VSYNC hardware refresh delay (typically 16.6 ms at 60 Hz). For interactive conversational continuity, ClearCall enforces the constraint T_total < 450 ms."
-    )
-
-    add_h2("D. Confidence-Based Dual-Engine Fallback Formulation")
-    add_body(
-        "To balance zero-cost privacy against transcription accuracy in hostile acoustic noise environments, ClearCall implements a dynamic engine selection decision function D(x) for incoming audio chunk x:",
-        indent=False
-    )
-    add_eq("\\mathcal{D}(x) = \\begin{cases} \\text{On-Device Engine}, & \\text{if } \\mathcal{C}(x) \\geq \\theta_{\\text{conf}} \\lor \\neg \\text{NetAvail} \\\\ \\text{Cloud Fallback}, & \\text{if } \\mathcal{C}(x) < \\theta_{\\text{conf}} \\land \\text{NetAvail} \\land \\mathcal{L}_{\\text{cloud}} \\leq \\theta_{\\text{lat}} \\\\ \\text{On-Device Engine}, & \\text{otherwise} \\end{cases}", 5)
-    add_body(
-        "where C(x) in [0, 1] is the posterior confidence probability emitted by the on-device decoder, theta_conf is the calibrated confidence threshold (established empirically at 0.72), NetAvail is a boolean flag indicating active internet reachability, L_cloud is the measured network round-trip ping, and theta_lat is the upper tolerable cloud latency ceiling (500 ms). This ensures that cloud routing is engaged strictly as an auxiliary fail-safe without sacrificing user privacy under nominal conditions."
+        "where \u03b8_conf = 0.72 is the empirical confidence floor, and \u03b8_lat = 500 ms is the tolerable cloud latency ceiling."
     )
 
     # =============================================================
@@ -1087,7 +1154,13 @@ def create_ieee_report():
         "[11] Ava Inc., \"Total conversation accessibility in professional and clinical settings,\" Ava Accessibility White Paper, San Francisco, CA, 2022.",
         "[12] A. Radford, J. W. Kim, T. Xu, G. Brockman, C. McLeavey, and I. Sutskever, \"Robust speech recognition via large-scale weak supervision,\" in Proc. Int. Conf. Mach. Learn. (ICML), 2023, pp. 28492–28518.",
         "[13] D. Bahdanau, K. Cho, and Y. Bengio, \"Neural machine translation by jointly learning to align and translate,\" in Proc. 3rd Int. Conf. Learn. Represent. (ICLR), San Diego, CA, 2015, pp. 1–15.",
-        "[14] K. Papineni, S. Roukos, T. Ward, and W.-J. Zhu, \"BLEU: A method for automatic evaluation of machine translation,\" in Proc. 40th Annu. Meet. Assoc. Comput. Linguist. (ACL), Philadelphia, PA, 2002, pp. 311–318."
+        "[14] K. Papineni, S. Roukos, T. Ward, and W.-J. Zhu, \"BLEU: A method for automatic evaluation of machine translation,\" in Proc. 40th Annu. Meet. Assoc. Comput. Linguist. (ACL), Philadelphia, PA, 2002, pp. 311–318.",
+        "[15] A. Gulati, J. Qin, C.-C. Chiu, N. Parmar, M. Zhang, J. Yu, W. Han, S. Wang, Z. Zhang, Y. Wu, and R. Pang, \"Conformer: Convolution-augmented Transformer for Speech Recognition,\" in Proc. Interspeech 2020, Shanghai, China, 2020, pp. 5036–5040.",
+        "[16] A. Graves, S. Fernández, F. Gomez, and J. Schmidhuber, \"Connectionist temporal classification: labelling unsegmented sequence data with recurrent neural networks,\" in Proc. 23rd Int. Conf. Mach. Learn. (ICML), Pittsburgh, PA, 2006, pp. 369–376.",
+        "[17] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, L. Kaiser, and I. Polosukhin, \"Attention is all you need,\" in Advances in Neural Information Processing Systems (NeurIPS), Long Beach, CA, 2017, pp. 5998–6008.",
+        "[18] J. Brooke, \"SUS: A 'quick and dirty' usability scale,\" in Usability Evaluation in Industry, P. W. Jordan, B. Thomas, B. A. Weerdmeester, and I. L. McClelland, Eds. London: Taylor & Francis, 1996, pp. 189–194.",
+        "[19] ITU-T, \"Methods for subjective determination of transmission quality,\" International Telecommunication Union, Geneva, Switzerland, Tech. Rep. ITU-T Recommendation P.800, 2021.",
+        "[20] 3GPP, \"IP Multimedia Subsystem (IMS); Multimedia telephony; Media handling and interaction,\" 3rd Generation Partnership Project, Sophia Antipolis, France, Tech. Spec. 3GPP TS 26.114 V18.0.0, 2023."
     ]
 
     for ref in refs:
